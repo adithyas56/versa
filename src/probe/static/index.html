@@ -96,6 +96,24 @@ input,button{font-family:inherit}
 .send-btn{background:#c2410c;border:none;width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.15s,transform 0.15s}
 .send-btn:hover{background:#9a2f08;transform:translateY(-1px)}
 .send-btn:disabled{background:#c9b8ad;cursor:default;transform:none}
+/* centered voice hub — the app's primary conversation control */
+.voice-hub{display:flex;flex-direction:column;align-items:center;gap:9px;margin-bottom:16px}
+.mic-orb{position:relative;width:74px;height:74px;border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 38% 30%,#e79a5f,#c2410c);box-shadow:0 12px 32px rgba(194,65,12,0.28),inset 0 -5px 12px rgba(0,0,0,0.16),inset 0 4px 10px rgba(255,255,255,0.4);display:grid;place-items:center;transition:transform .12s,box-shadow .2s}
+.mic-orb:hover{transform:scale(1.05)}
+.mic-orb:active{transform:scale(.96)}
+.mic-orb-icon{font-size:27px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.22))}
+.mic-orb-ring{position:absolute;inset:-7px;border-radius:50%;border:2px solid rgba(194,65,12,0.32);opacity:0}
+.mic-orb.recording{background:radial-gradient(circle at 38% 30%,#ec6a3f,#9a2f08)}
+.mic-orb.recording .mic-orb-ring{opacity:1;animation:micripple 1.4s ease-out infinite}
+.mic-orb.speaking{background:radial-gradient(circle at 38% 30%,#9cc072,#5b6d48);box-shadow:0 12px 32px rgba(123,160,91,0.34)}
+.mic-orb.speaking .mic-orb-ring{border-color:rgba(123,160,91,0.5);opacity:1;animation:micripple 1.1s ease-out infinite}
+@keyframes micripple{0%{transform:scale(.82);opacity:.7}100%{transform:scale(1.65);opacity:0}}
+.mic-caption{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8478;letter-spacing:.6px;min-height:15px;transition:color .2s}
+.mic-caption.live{color:#c2410c;font-style:italic}
+.mic-caption.speaking{color:#5b6d48}
+.promptbar .send-btn{flex-shrink:0}
+.speak-toggle{background:transparent;border:1px solid #e3ded3;border-radius:20px;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8478;cursor:pointer;letter-spacing:0.5px}
+.speak-toggle.on{color:#5b6d48;border-color:#a9c089;background:rgba(123,160,91,0.08)}
 .prompt-meta{display:flex;align-items:center;justify-content:space-between;padding:8px 6px 0;font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8478;letter-spacing:0.5px}
 .toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .toggle .track{width:22px;height:12px;background:#c5bfae;border-radius:8px;position:relative;transition:background .15s}
@@ -247,7 +265,6 @@ input,button{font-family:inherit}
       <div class="dot" id="turnDotSep" hidden></div>
       <div class="mono" id="turnChip" style="font-size:11px;color:#8a8478" hidden></div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
-        <a href="/voice" class="mono" style="font-size:11px;color:#c2410c;text-decoration:none;border:1px solid #e3ded3;border-radius:20px;padding:5px 12px">🎙 Voice tutor</a>
         <div class="thinking-badge" id="thinkingBadge" hidden>
           <div style="width:6px;height:6px;background:#c2410c;border-radius:50%;animation:breathe 1s ease-in-out infinite"></div>
           <div class="mono" style="font-size:10px;color:#c2410c;letter-spacing:1.5px">GENERATING BRANCHES</div>
@@ -265,15 +282,23 @@ input,button{font-family:inherit}
 
     <div class="promptwrap">
       <div class="col">
+        <div class="voice-hub">
+          <button class="mic-orb" id="micBtn" title="tap to speak" type="button">
+            <span class="mic-orb-ring"></span>
+            <span class="mic-orb-icon" id="micIcon">🎙</span>
+          </button>
+          <div class="mic-caption" id="micState">tap to speak</div>
+        </div>
         <div class="probe-panel promptbar">
-          <input type="text" id="draft" placeholder="e.g. What's the difference between dy/dx and d/dx?" autocomplete="off">
+          <input type="text" id="draft" placeholder="…or type your question" autocomplete="off">
           <button class="send-btn" id="sendBtn" title="send">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
           </button>
         </div>
         <div class="prompt-meta">
-          <div style="display:flex;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px">
             <span>learner: <span id="learnerEcho">alice-chen</span></span>
+            <button id="speakToggle" class="speak-toggle" title="read answers aloud" type="button">🔊 speak: off</button>
           </div>
           <div id="promptHint">enter ↵ to send</div>
         </div>

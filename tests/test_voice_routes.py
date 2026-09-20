@@ -22,15 +22,6 @@ def client(monkeypatch):
         yield c
 
 
-def test_voice_page_is_served(client):
-    resp = client.get("/voice")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    assert '<script src="/static/voice.js">' in resp.text
-    assert client.get("/static/voice.js").status_code == 200
-    assert client.get("/static/voice.css").status_code == 200
-
-
 def test_voice_turn_runs_the_existing_pipeline(client):
     resp = client.post(
         "/api/voice/turn",

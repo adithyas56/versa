@@ -40,7 +40,13 @@ logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -402,8 +408,10 @@ async def _index(_request: Request) -> Response:
     return FileResponse(_STATIC_DIR / "index.html")
 
 
-async def _voice_page(_request: Request) -> Response:
-    return FileResponse(_STATIC_DIR / "voice.html")
+async def _voice_redirect(_request: Request) -> Response:
+    # Voice is now integrated into the main page; keep the old /voice path
+    # working by redirecting so bookmarks/habits don't 404.
+    return RedirectResponse(url="/", status_code=307)
 
 
 async def _create_session(request: Request) -> Response:
@@ -1177,7 +1185,7 @@ async def _lifespan(_app: Starlette):
 def create_app() -> Starlette:
     routes = [
         Route("/", _index),
-        Route("/voice", _voice_page),
+        Route("/voice", _voice_redirect),
         Route("/api/session", _create_session, methods=["POST"]),
         Route("/api/session/{session_id}", _get_session, methods=["GET"]),
         Route(
