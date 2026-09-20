@@ -49,16 +49,17 @@ The live tutoring turn:
 
 ```mermaid
 flowchart TD
-    A[Student message] --> M[EmbedAndSearchFacts + ConfirmFactMatch]
-    M -->|known ambiguity, branching skipped| E[FinalAnswer]
+    A[Student message] --> M[EmbedAndSearchFacts + ConfirmFactMatch<br/>pgvector pre-check]
+    M -->|known ambiguity, branching skipped| E[FinalAnswer<br/>Gemini]
     M -->|not resolved by memory| B[AssessAndBranch]
     B -->|unambiguous| E
     B -->|ambiguous| C[GenerateOptions]
     C --> D{Student clicks<br/>or types}
     D -->|click| E
     D -->|types past options| B
-    R[Moss retrieval<br/>local semantic index] -->|learner-memory context| E
-    E --> F[Response shown to student]
+    R[⚡ MOSS RETRIEVAL<br/>local semantic index · ~2 ms · sub-10ms]
+    R -->|relevant learner-memory context| E
+    E --> F[Response shown / spoken to student]
     F --> G[WriteLearnerFact]
     G --> H[(learner_facts<br/>Postgres = source of truth)]
     H -.->|semantic pre-check,<br/>every turn| M
@@ -67,9 +68,16 @@ flowchart TD
     I --> J[Consolidate: label the<br/>session's order-of-moves]
     J --> K[(thinking_style_candidates)]
     K -.->|after many confirmed<br/>independent sessions| E
+    style R fill:#1f6f3d,stroke:#7ba05b,stroke-width:3px,color:#ffffff
+    style E fill:#7a3410,stroke:#c2410c,color:#ffffff
+    style H fill:#2b4a6f,stroke:#5b7fa6,color:#ffffff
 ```
 
-On every answer-producing turn, Versa retrieves this learner's evidence-backed memories from **Moss** — a low-latency semantic index loaded locally in the app process — and injects them into the answer prompt. Postgres stays the durable source of truth; Moss is the hot-path retrieval runtime, and its measured retrieval latency is shown live in the UI (see [BENCHMARKS.md](BENCHMARKS.md)). With no Moss credentials the same path runs against an in-process stub engine (offline, deterministic, free), so nothing about the product depends on a key being present to develop or test.
+**Where Moss fits (⚡ the green node above).** On every answer-producing turn, Versa asks **Moss** for this learner's relevant memories and injects them into the Gemini prompt (`R → FinalAnswer`). Moss holds the learner-memory index **loaded locally in the app process** and does the **embedding + semantic search in-process in ~2 ms** — no separate vector database, no per-query network round-trip. That measured retrieval latency is shown live in the UI. This is Versa's core "Zero Latency" advantage: memory-aware personalization on every turn without slowing the conversation.
+
+> **Note — two different search steps, only one is Moss.** The `EmbedAndSearchFacts` node (`M`) is a legacy **pgvector** *pre-check* that decides whether a past resolution lets Versa skip re-asking — it does **not** generate the answer. **Moss** is the separate `R` node: the fast semantic retrieval that feeds learner-memory context into `FinalAnswer`. When the demo/UI shows a `~2 ms` retrieval panel, that is the Moss (`R`) step.
+
+Postgres stays the durable source of truth; Moss is the hot-path retrieval runtime (see [BENCHMARKS.md](BENCHMARKS.md)). With no Moss credentials the same path runs against an in-process stub engine (offline, deterministic, free), so nothing about the product depends on a key being present to develop or test.
 
 A single reasoning mode is live: `minimal_branch` (`ReasoningMode.DISAMBIGUATE`). At most three LLM calls fully resolve one exchange — an ambiguity assessment, one clickable option per interpretation, and a final answer once the student has resolved which reading they meant. A plain-LLM `BASELINE` mode also exists as the measurement control.
 
