@@ -400,9 +400,19 @@ class MossService:
         embedding_client: EmbeddingClient,
         *,
         seed_docs: list[MemoryDocument] | None = None,
+        build_if_missing: bool = True,
     ) -> MossService:
+        """Build the engine, optionally (re)build the index from `seed_docs`,
+        then load it locally.
+
+        `build_if_missing=False` skips index creation entirely and only
+        loads an already-built index — the webserver uses this so a server
+        boot never triggers a cloud index build (which would spend the Moss
+        allowance and couple index construction to startup). The dedicated
+        `scripts/build_moss_index.py` run is the one place that builds it,
+        with `build_if_missing=True`."""
         engine = build_moss_engine(config, embedding_client)
-        if seed_docs:
+        if build_if_missing and seed_docs:
             await engine.ensure_index(seed_docs)
         await engine.load()
         return cls(engine, config)

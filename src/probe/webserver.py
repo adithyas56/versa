@@ -26,11 +26,12 @@ client, which a cold rebuild defaults back to stub.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import UUID
 
@@ -49,13 +50,13 @@ from probe.baseline import MAX_CALLS_PER_TURN as _MAX_CALLS_PER_TURN
 from probe.db import create_pool
 from probe.diagnostics import TurnDiagnosticsStore
 from probe.disambiguate import DisambiguationStore
-from probe.evidence import EvidenceStore
-from probe.interactions import InteractionStore
 from probe.embeddings import (
     EmbeddingClient,
     StubEmbeddingClient,
     build_embedding_client,
 )
+from probe.evidence import EvidenceStore
+from probe.interactions import InteractionStore
 from probe.learner import LearnerStore
 from probe.llm import ModelTierClients, StubLLMClient, build_tier_clients
 from probe.loop import SessionLoop
@@ -64,6 +65,12 @@ from probe.memory_index import load_memory_docs_from_facts
 from probe.models import Learner, OptionStatus
 from probe.moss_client import MossConfig, MossService
 from probe.session_builder import build_session_loop
+from probe.voice import (
+    StubVoiceService,
+    VoiceService,
+    build_voice_service,
+    speakable_text,
+)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -137,39 +144,64 @@ class _AppState:
     # was not required (the live path then simply runs without a Moss
     # block, same as any other optional layer being absent).
     moss_service: MossService | None = None
+    # The one long-lived voice (TTS) service, built once at startup. Real
+    # ElevenLabs when a key is set, else the stub. Used only by the voice
+    # route to turn a finished answer into audio (§21).
+    voice_service: VoiceService | None = None
 
 
 _state = _AppState()
 
 
 def _moss_embedding_client() -> EmbeddingClient:
-    """Embedding client for the Moss service. Prefers real Gemini
-    embeddings when a key is present (so the stub Moss engine searches in
-    the same vector space the durable facts were embedded in), else the
-    deterministic stub. Built once at startup."""
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        return build_embedding_client(api_key)
+    """Embedding client for the Moss service. Deliberately the deterministic
+    stub, always: the REAL Moss engine embeds text server-side with its own
+    model and never touches this client, so it is only ever used by the
+    in-process stub-Moss fallback. Using the stub here keeps that fallback
+    free and offline (no real Gemini embedding calls on the retrieval path,
+    including in tests), and the real demo path embeds inside Moss itself."""
     return StubEmbeddingClient()
 
 
 async def _build_moss_service(pool) -> MossService | None:
-    """Build + load the Moss learner-memory index at startup (§19),
-    seeded from the durable facts already in Postgres so a returning
-    learner's memory is retrievable on the first turn after a restart.
+    """Bring up the Moss learner-memory service at startup (§19).
 
-    Failure-isolated unless MOSS_REQUIRED is set: if Moss cannot come up
-    and it is required (deploy/production config), the error propagates
-    and startup fails loudly (§20.1); otherwise it is logged and the live
-    path runs without a Moss block."""
+    A server boot must never *build* a real cloud index (that spends the
+    Moss allowance and couples index construction to startup — see
+    scripts/build_moss_index.py, the one place that builds it). So with
+    real credentials this only *loads* an already-built index
+    (`build_if_missing=False`). If that index does not exist yet, or Moss
+    is otherwise unreachable, it falls back to the in-process stub engine
+    seeded from the durable facts in Postgres — the live path keeps working
+    locally (labeled `stub-moss` in telemetry) until the real index is
+    built once. If MOSS_REQUIRED is set, a real-Moss failure propagates and
+    startup fails loudly instead (§20.1)."""
     config = MossConfig.from_env()
     embedding_client = _moss_embedding_client()
+    fact_store = LearnerFactStore(pool)
+
+    # Preferred: load the real, already-built index (no build at boot).
+    if config.engine == "moss" and config.has_credentials:
+        try:
+            return await MossService.create(
+                config, embedding_client, build_if_missing=False
+            )
+        except Exception as exc:
+            if config.required:
+                raise
+            logger.warning(
+                "Real Moss index not loadable at startup (%s); falling back to "
+                "the in-process stub engine. Run scripts/build_moss_index.py to "
+                "build the real index.",
+                exc,
+            )
+
+    # Fallback: local stub engine seeded from Postgres facts.
     try:
-        fact_store = LearnerFactStore(pool)
+        stub_config = replace(config, engine="stub")
         seed_docs = await load_memory_docs_from_facts(fact_store)
-        return await MossService.create(config, embedding_client, seed_docs=seed_docs)
-    except Exception as exc:  # noqa: BLE001
+        return await MossService.create(stub_config, embedding_client, seed_docs=seed_docs)
+    except Exception as exc:
         if config.required:
             raise
         logger.warning("Moss service unavailable at startup: %s", exc, exc_info=True)
@@ -246,7 +278,7 @@ async def _tutor_message_for_turn(
     return None
 
 
-def _retrieval_payload(session: "_Session") -> dict | None:
+def _retrieval_payload(session: _Session) -> dict | None:
     """The Moss retrieval telemetry for the turn just run (§21.3/§30),
     read from the loop's last-turn retrieval state. None when no Moss
     retrieval happened (no service wired, or a non-answer turn). Demo-safe:
@@ -368,6 +400,10 @@ async def _inspect_payload(stores: dict, session_id: UUID) -> dict:
 
 async def _index(_request: Request) -> Response:
     return FileResponse(_STATIC_DIR / "index.html")
+
+
+async def _voice_page(_request: Request) -> Response:
+    return FileResponse(_STATIC_DIR / "voice.html")
 
 
 async def _create_session(request: Request) -> Response:
@@ -571,6 +607,130 @@ async def _run_turn(request: Request) -> Response:
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+async def _voice_session(
+    session_id: str | None, learner_spec: str | None, *, use_stub: bool
+) -> _Session:
+    """Resolve the session for a voice turn, reusing the existing session
+    machinery so voice and text share ONE tutor brain (§19/§37/§38).
+
+    A known `session_id` is reused as-is; otherwise a fresh session is
+    created for the learner. `use_stub` is False for the real demo (real
+    Gemini/Moss, §36/§42) and True for automated tests. Voice never builds
+    a second tutoring pipeline — it drives the same `SessionLoop.handle_turn`
+    the text route drives."""
+    if session_id and session_id in _SESSIONS:
+        return _SESSIONS[session_id]
+    if session_id:
+        rebuilt = await _get_or_rebuild(session_id)
+        if rebuilt is not None:
+            return rebuilt
+    spec = (learner_spec or "").strip()
+    if not spec:
+        raise LookupError("learner is required to start a voice session")
+    learner = await _resolve_learner(_stores()["learners"], spec)
+    session = _Session(
+        loop=None,  # type: ignore[arg-type]
+        session_id=UUID(int=0),
+        learner=learner,
+        use_stub=use_stub,
+    )
+    session.loop = _build_loop(use_stub, session.on_node)
+    session.session_id = await _stores()["transcript"].create_session(
+        learner.id, ablation_config=AblationConfig()
+    )
+    _SESSIONS[str(session.session_id)] = session
+    return session
+
+
+async def _voice_turn(request: Request) -> Response:
+    """POST /api/voice/turn — the voice input/output surface (§18).
+
+    Runs the SAME Versa tutoring turn the text UI runs (ambiguity →
+    learner-filtered Moss retrieval → Gemini answer), then synthesizes the
+    answer to speech with ElevenLabs and returns it as base64 audio. Voice
+    is only the I/O adapter; all tutoring, memory, and isolation logic is
+    the existing pipeline's (§19). Degrades gracefully: if TTS fails, the
+    text answer is still returned (§35)."""
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"error": "text is required"}, status_code=400)
+    option_id_raw = body.get("option_id")
+    try:
+        option_id = UUID(option_id_raw) if option_id_raw else None
+    except ValueError:
+        return JSONResponse({"error": "bad option_id"}, status_code=400)
+
+    # Real engines by default (the demo, §36); tests pass stub=true so no
+    # paid API is ever called in CI (§42).
+    use_stub = bool(body.get("stub", False))
+    try:
+        session = await _voice_session(
+            body.get("session_id"), body.get("learner"), use_stub=use_stub
+        )
+    except LookupError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except RuntimeError as exc:
+        # e.g. GEMINI_API_KEY missing for a real session
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async with session.lock:
+        turn_index = session.turn_index
+        try:
+            message = await session.loop.handle_turn(
+                session.session_id, turn_index, text, option_id
+            )
+        except Exception as exc:
+            logger.warning("Voice turn failed: %s", exc, exc_info=True)
+            return JSONResponse(
+                {"error": "Versa couldn't generate a response right now."},
+                status_code=500,
+            )
+        session.turn_index = turn_index + 1
+
+    stores = _stores()
+    pending = await _pending_options(stores, session.session_id)
+    retrieval = _retrieval_payload(session)
+
+    # Text-to-speech (§21). Best-effort: a TTS failure never fails the turn
+    # — the browser shows the text answer instead (§35).
+    audio_base64: str | None = None
+    audio_mime: str | None = None
+    voice_engine: str | None = None
+    # A stub turn (tests/offline) must never hit the paid ElevenLabs API.
+    voice = StubVoiceService() if use_stub else _state.voice_service
+    if voice is not None and message:
+        try:
+            audio = await voice.speak(speakable_text(message))
+            if audio and len(audio) > 8:  # a real clip, not the stub marker
+                audio_base64 = base64.b64encode(audio).decode("ascii")
+                audio_mime = voice.mime_type
+            voice_engine = voice.engine_name
+        except Exception as exc:
+            logger.warning("ElevenLabs TTS failed: %s", exc, exc_info=True)
+            voice_engine = getattr(voice, "engine_name", None)
+
+    return JSONResponse(
+        {
+            "session_id": str(session.session_id),
+            "learner": {"id": str(session.learner.id), "label": session.learner.label},
+            "turn_index": turn_index,
+            "next_turn_index": session.turn_index,
+            "message": message,
+            # A concise, plain-text version for speech — used by ElevenLabs
+            # and, when no server audio is available (e.g. free-tier TTS
+            # blocked), by the browser's built-in speechSynthesis fallback.
+            "spoken_text": speakable_text(message) if message else "",
+            "branched": bool(pending),
+            "pending_options": pending,
+            "retrieval": retrieval,
+            "audio_base64": audio_base64,
+            "audio_mime": audio_mime,
+            "voice_engine": voice_engine,
+        }
     )
 
 
@@ -915,7 +1075,11 @@ async def _instrument_inspect(request: Request) -> Response:
     PREFERENCE or PERFORMANCE contract."""
     from probe.capability import CapabilityClaimStore
     from probe.claims import ClaimStore
-    from probe.instruments import InstrumentEventStore, InstrumentStore, InteractionContractStore
+    from probe.instruments import (
+        InstrumentEventStore,
+        InstrumentStore,
+        InteractionContractStore,
+    )
     from probe.models import MeasurementKind
 
     instrument_id = UUID(request.path_params["instrument_id"])
@@ -999,6 +1163,7 @@ async def _consolidate(request: Request) -> Response:
 async def _lifespan(_app: Starlette):
     _state.pool = await create_pool(_database_url(), min_size=1, max_size=8)
     _state.moss_service = await _build_moss_service(_state.pool)
+    _state.voice_service = build_voice_service()
     try:
         yield
     finally:
@@ -1006,16 +1171,19 @@ async def _lifespan(_app: Starlette):
             await _state.pool.close()
             _state.pool = None
         _state.moss_service = None
+        _state.voice_service = None
 
 
 def create_app() -> Starlette:
     routes = [
         Route("/", _index),
+        Route("/voice", _voice_page),
         Route("/api/session", _create_session, methods=["POST"]),
         Route("/api/session/{session_id}", _get_session, methods=["GET"]),
         Route(
             "/api/session/{session_id}/turn", _run_turn, methods=["POST"]
         ),
+        Route("/api/voice/turn", _voice_turn, methods=["POST"]),
         Route("/api/session/{session_id}/inspect", _inspect, methods=["GET"]),
         Route(
             "/api/session/{session_id}/consolidate",

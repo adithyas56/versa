@@ -76,6 +76,14 @@ async def _main() -> None:
             learner = await learners.get_by_label(label)
             if learner is None:
                 learner = await learners.create(label=label)
+            # Idempotent: a learner that already carries facts is left as-is,
+            # so re-running never duplicates the demo memories (or re-spends
+            # embedding calls). Append-only store — we skip, never delete.
+            existing = await facts.list_by_learner(learner.id)
+            if existing:
+                print(f"{label}: learner {learner.id} already seeded "
+                      f"({len(existing)} facts) — skipping")
+                continue
             session_id = await transcript.create_session(learner.id)
             print(f"{label}: learner {learner.id}")
             for i, (fact_type, situation, resolution) in enumerate(fact_specs):

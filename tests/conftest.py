@@ -24,6 +24,11 @@ from probe.memory import LearnerFactStore, ThinkingStyleStore
 # shell by hand. Loading .env here is the actual fix; the fallback
 # below now only matters if .env itself is missing.
 load_dotenv()
+# Tests must never touch the real Moss cloud (or spend its allowance): force
+# the in-process stub retrieval engine regardless of any real MOSS_* creds
+# that .env may carry. The voice route independently gates ElevenLabs on its
+# per-request `stub` flag, so no paid API is reachable from the suite.
+os.environ["VERSA_RETRIEVAL_ENGINE"] = "stub"
 DATABASE_URL = os.getenv(
     "PROBE_TEST_DATABASE_URL",
     "postgresql://probe:probe@localhost:5434/probe",
