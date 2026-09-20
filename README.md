@@ -1,10 +1,20 @@
 # Versa
 
-**A tutor that stops guessing.**
+**A voice AI tutor that stops guessing — and remembers how you learn.**
 
-Instead of quietly assuming what a student meant, Versa recognizes uncertainty, asks one sharp clarifying question with real, clickable options — not vague "what do you prefer" quizzing — and remembers how every past ambiguity was resolved. Over time it starts recognizing a student's own thinking style, not from a survey, but from accumulated evidence.
+### 🌐 Live demo: **https://versa-933670225453.us-central1.run.app/**
+
+> Open it in **Chrome** (the voice mic uses Chrome's Web Speech API). Type or tap the mic to talk. Try learner `demo-learner-a` vs `demo-learner-b` and ask the **same** question — Moss retrieves each learner's own memory, so you get different, personalized answers.
+>
+> *Deployed on Google Cloud Run + Cloud SQL. Built for **YC Fall 2026 × Moss: The Zero Latency Builder Sprint** — Moss is the sub-10ms, locally-loaded semantic retrieval layer for learner memory on the live conversation path.*
+
+---
+
+Instead of quietly assuming what a student meant, Versa recognizes uncertainty, asks one sharp clarifying question with real, clickable options — not vague "what do you prefer" quizzing — and remembers how every past ambiguity was resolved. Over time it starts recognizing a student's own thinking style, not from a survey, but from accumulated evidence. A student can **type or talk** to it; retrieved learner memory (via **Moss**, ~2 ms) is injected into every answer so the tutor personalizes without a slow retrieval round-trip.
 
 The Python package is named `probe`; **Versa** is the product name. This README describes the codebase as it currently stands.
+
+**Submission docs:** [PRD.md](PRD.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [BENCHMARKS.md](BENCHMARKS.md) · [DEMO_SCRIPT.md](DEMO_SCRIPT.md) · [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 

@@ -1,0 +1,26 @@
+# Never bake secrets or local junk into the container image.
+.env
+.env.*
+!.env.example
+.venv
+.git
+.gitignore
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+
+# Local dev / scratch / outputs (not needed at runtime)
+Claude outputs/
+scratchpad_*.txt
+grounding_run2_*.md
+*.md
+!README.md
+
+# Local Postgres data / docker
+docker-compose.yml
