@@ -1,0 +1,34 @@
+[project]
+name = "probe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sooraj", email = "soorajjr27@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "asyncpg>=0.31.0",
+    "google-genai>=2.20.0",
+    "moss>=1.12.0",
+    "pgvector>=0.5.0",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.3",
+    "scipy>=1.18.1",
+    "starlette>=1.6.0",
+    "uvicorn>=0.52.4",
+]
+
+[project.scripts]
+probe = "probe.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.4",
+]

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>probe — instrument</title>
+<style>
+body{margin:0;background:#f5f3ee;color:#1a1815;font-family:'Inter Tight',system-ui,sans-serif;display:flex;justify-content:center;padding:48px 16px}
+.card{max-width:560px;width:100%}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#6b6558;font-size:13px;margin:0 0 28px}
+label{display:block;font-size:12px;color:#6b6558;margin-bottom:6px}
+input{width:100%;padding:10px 12px;border:1px solid #d8d2c4;border-radius:8px;font-size:14px;box-sizing:border-box}
+button{margin-top:14px;padding:10px 18px;border:none;border-radius:8px;background:#c2410c;color:#fff;font-size:14px;cursor:pointer}
+button:hover{background:#9a2f08}
+button:disabled{background:#ccc;cursor:default}
+.prompt{font-size:15px;margin:24px 0 16px}
+.steps{display:flex;flex-direction:column;gap:8px}
+.step{padding:12px 16px;border:1px solid #d8d2c4;border-radius:8px;background:#fff;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:14px;transition:background 0.15s,border-color 0.15s}
+.step:hover{background:#f0ede4;border-color:#c2410c}
+.step.chosen{border-color:#c2410c;background:#fdece3}
+.result{margin-top:20px;padding:14px 16px;border-radius:8px;font-size:14px;display:none}
+.result.show{display:block}
+.result.supports{background:#e7f3ea;color:#1e5c30}
+.result.contradicts{background:#fdece3;color:#8a3a12}
+.result.uninformative{background:#eee;color:#555}
+#instrumentArea{display:none}
+#instrumentArea.show{display:block}
+.hint{font-size:12px;color:#8a8474;margin-top:20px}
+.inspector{margin-top:28px;border-top:1px solid #d8d2c4;padding-top:16px;display:none}
+.inspector.show{display:block}
+.inspector h2{font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#8a8474;margin:0 0 10px}
+.inspector-row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px dashed #e5e0d3}
+.inspector pre{background:#fff;border:1px solid #d8d2c4;border-radius:8px;padding:10px 12px;font-size:12px;font-family:'JetBrains Mono',monospace;white-space:pre-wrap;max-height:220px;overflow-y:auto}
+.refresh-btn{background:transparent;border:1px solid #d8d2c4;color:#6b6558;padding:6px 12px;font-size:12px;margin-top:0}
+.refresh-btn:hover{background:#f0ede4}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Instrument demo</h1>
+  <p class="sub">Foundation build: hand-authored contracts, no generation, no mode selector.</p>
+
+  <div id="setupArea">
+    <label for="learnerInput">Learner (label or UUID)</label>
+    <input id="learnerInput" value="instrument-demo-learner" autocomplete="off">
+    <label for="primitiveSelect" style="margin-top:14px">Primitive</label>
+    <select id="primitiveSelect" style="width:100%;padding:10px 12px;border:1px solid #d8d2c4;border-radius:8px;font-size:14px">
+      <option value="locate">locate — spot the seeded error</option>
+      <option value="predict">predict — trace the machinery, predict the result</option>
+    </select>
+    <button id="presentBtn">Present instrument</button>
+  </div>
+
+  <div id="instrumentArea">
+    <p class="prompt" id="promptText"></p>
+    <pre id="machineryBlock" style="display:none;background:#fff;border:1px solid #d8d2c4;border-radius:8px;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:13px;white-space:pre-wrap"></pre>
+    <div class="steps" id="stepsList"></div>
+    <button id="submitBtn" disabled>Submit</button>
+    <div class="result" id="resultBox"></div>
+  </div>
+
+  <p class="hint">Click any number of steps to change your answer, then Submit. Navigating away before submitting is captured as abandonment.</p>
+
+  <div class="inspector" id="inspector">
+    <h2>Inspector — live from /api/instrument/&lt;id&gt;/inspect</h2>
+    <div class="inspector-row"><span>Target claim</span><span id="inspClaim">—</span></div>
+    <div class="inspector-row"><span>Confidence</span><span id="inspConfidence">—</span></div>
+    <div class="inspector-row"><span>Evidence rows</span><span id="inspEvidenceCount">—</span></div>
+    <div class="inspector-row"><span>Instrument status</span><span id="inspStatus">—</span></div>
+    <button class="refresh-btn" id="refreshInspectorBtn">Refresh</button>
+    <p style="font-size:12px;color:#8a8474;margin:14px 0 6px">Raw event log</p>
+    <pre id="inspEvents"></pre>
+  </div>
+</div>
+<script src="/static/instrument.js"></script>
+</body>
+</html>
