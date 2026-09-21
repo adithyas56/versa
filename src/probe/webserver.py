@@ -31,6 +31,8 @@ import contextlib
 import json
 import logging
 import os
+import re
+import secrets
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import UUID
@@ -408,10 +410,56 @@ async def _index(_request: Request) -> Response:
     return FileResponse(_STATIC_DIR / "index.html")
 
 
-async def _voice_redirect(_request: Request) -> Response:
-    # Voice is now integrated into the main page; keep the old /voice path
-    # working by redirecting so bookmarks/habits don't 404.
-    return RedirectResponse(url="/", status_code=307)
+async def _voice_page(_request: Request) -> Response:
+    # The real-time LiveKit voice tutor page.
+    return FileResponse(_STATIC_DIR / "voice.html")
+
+
+def _livekit_config() -> tuple[str | None, str | None, str | None]:
+    load_dotenv()
+    return (
+        os.getenv("LIVEKIT_URL"),
+        os.getenv("LIVEKIT_API_KEY"),
+        os.getenv("LIVEKIT_API_SECRET"),
+    )
+
+
+def _sanitize_learner(spec: str) -> str:
+    # LiveKit room/identity segments: keep it URL/room-safe and free of the
+    # "__" separator the agent uses to parse the learner out of the room name.
+    safe = re.sub(r"[^a-zA-Z0-9-]", "-", spec).strip("-")[:40]
+    return safe or "student"
+
+
+async def _livekit_token(request: Request) -> Response:
+    """Mint a short-lived LiveKit room token for the browser (server-side; the
+    API secret never reaches the client). The room name encodes the learner
+    so the voice agent knows whose memory to retrieve
+    (`versa__<learner>__<rand>`)."""
+    body = await request.json()
+    learner = (body.get("learner") or "").strip()
+    if not learner:
+        return JSONResponse({"error": "learner is required"}, status_code=400)
+    url, key, secret = _livekit_config()
+    if not (url and key and secret):
+        return JSONResponse(
+            {"error": "LiveKit is not configured on the server"}, status_code=503
+        )
+    from livekit import api
+
+    safe = _sanitize_learner(learner)
+    room = f"versa__{safe}__{secrets.token_hex(4)}"
+    identity = f"student__{safe}__{secrets.token_hex(3)}"
+    token = (
+        api.AccessToken(key, secret)
+        .with_identity(identity)
+        .with_name(learner)
+        .with_grants(api.VideoGrants(room_join=True, room=room))
+        .to_jwt()
+    )
+    return JSONResponse(
+        {"token": token, "url": url, "room": room, "identity": identity, "learner": safe}
+    )
 
 
 async def _create_session(request: Request) -> Response:
@@ -1185,7 +1233,8 @@ async def _lifespan(_app: Starlette):
 def create_app() -> Starlette:
     routes = [
         Route("/", _index),
-        Route("/voice", _voice_redirect),
+        Route("/voice", _voice_page),
+        Route("/api/livekit/token", _livekit_token, methods=["POST"]),
         Route("/api/session", _create_session, methods=["POST"]),
         Route("/api/session/{session_id}", _get_session, methods=["GET"]),
         Route(
