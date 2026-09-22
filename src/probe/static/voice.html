@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Versa — Live Voice Tutor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/voice.css" />
+  <!-- LiveKit browser client SDK (real-time WebRTC audio) -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="brand">
+        <span class="mark"></span>
+        <span class="serif">Versa</span>
+        <span class="sub">Live Voice Tutor · LiveKit</span>
+        <a href="/" class="text-link">text mode ↗</a>
+      </div>
+      <div class="head-right">
+        <span class="engine-badges" id="engineBadges"></span>
+        <span class="lbl">learner</span>
+        <input id="learnerInput" class="learner-input" value="demo-learner-a" spellcheck="false" autocomplete="off" />
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="convo" id="convo">
+        <div class="empty-hero">
+          <div class="hero-orb"></div>
+          <div class="hero-line">Talk to Versa.</div>
+          <div class="hero-sub">Press <b>Start conversation</b>, allow the mic, and just speak. You can interrupt any time.</div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="orb-wrap">
+          <button class="orb" id="btnConnect" aria-label="start conversation">
+            <span class="orb-ring"></span>
+            <span class="orb-icon" id="orbIcon">🎙</span>
+          </button>
+        </div>
+        <div class="status-line">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">Tap to start</span>
+        </div>
+        <button class="end-btn" id="btnEnd" hidden>⏹ End conversation</button>
+        <div class="err" id="err" hidden></div>
+      </div>
+    </main>
+
+    <aside class="side">
+      <section class="panel moss">
+        <h3><span class="bolt">⚡</span> Moss Retrieval <span class="hint">retrieval only</span></h3>
+        <div id="mossPanel" class="moss-body"><div class="muted">Start talking — Moss retrieval appears here each turn.</div></div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="audioContainer" style="display:none"></div>
+  <script src="/static/voice.js"></script>
+</body>
+</html>

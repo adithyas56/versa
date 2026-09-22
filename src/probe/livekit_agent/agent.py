@@ -123,6 +123,7 @@ class VersaAgent(Agent):
             return "Sorry, I couldn't reach the tutor just now. Could you say that again?"
 
         self._session_id = data.get("session_id") or self._session_id
+        await self._publish_telemetry(data)
         message = (data.get("message") or "").strip()
         if data.get("branched") and data.get("pending_options"):
             opts = ", or ".join(o["text"] for o in data["pending_options"])
@@ -153,7 +154,7 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=silero.VAD.load(),
         # No LLM: VersaAgent.llm_node fully overrides response generation.
     )
-    await session.start(agent=VersaAgent(learner), room=ctx.room)
+    await session.start(agent=VersaAgent(learner, ctx.room), room=ctx.room)
     # Greet without going through llm_node (which would have no user turn yet).
     await session.say("Hi! I'm Versa. What would you like to learn today?")
 
