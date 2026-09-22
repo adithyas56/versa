@@ -660,7 +660,6 @@ async function submit(text, optionId) {
         last.retrieval = evt.retrieval || null; // Moss learner-memory telemetry
         if (evt.retrieval) state.lastRetrieval = evt.retrieval;
         state.pendingOptions = evt.branched ? evt.pending_options || [] : [];
-        if (window.Voice) window.Voice.speak(evt.message); // read answer aloud if enabled
         break;
       }
     }
@@ -1037,99 +1036,84 @@ $('btnNew').onclick = () => {
   render();
 };
 
-/* ─────────────────────── voice (mic in + speak out) ───────────────────
- * Integrated into the one text UI — no separate page, and it speaks/answers
- * for whatever learner is typed in the chip (fully dynamic). Speech input
- * uses the browser's Web Speech API; speech output uses the browser's built
- * in synthesis (free, no key). Both are optional and degrade to plain text. */
+/* ─────────────────── voice: real-time via LiveKit ─────────────────────
+ * The mic orb on THIS page starts a real-time voice conversation over
+ * LiveKit (WebRTC): your mic streams to the server voice agent, which does
+ * STT, calls the same Versa brain (Moss + Gemini), and streams speech back.
+ * Native barge-in. No browser SpeechRecognition/speechSynthesis. One page. */
 (function () {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const synth = window.speechSynthesis;
-  let rec = null, recording = false, speakOn = false;
-
-  function cleanForSpeech(text) {
-    let t = String(text || '');
-    t = t.replace(/```[\s\S]*?```/g, ' ');
-    t = t.replace(/\$+([^$]*)\$+/g, '$1');
-    t = t.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1) over ($2)');
-    t = t.replace(/\\[a-zA-Z]+/g, '');
-    t = t.replace(/[*_`#>]/g, '');
-    // Keep spoken output short and responsive.
-    const sentences = t.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/);
-    let out = sentences.slice(0, 4).join(' ');
-    if (out.length > 600) out = out.slice(0, 600).replace(/\s\S*$/, '') + '…';
-    return out;
-  }
+  const LK = window.LivekitClient;
+  let room = null, connecting = false;
 
   const orb = () => $('micBtn');
-  const IDLE_CAPTION = 'tap to speak';
-
-  // caption text + visual class ('', 'live', 'speaking'); orb state class too
   function setCaption(msg, cls) {
     const el = $('micState');
-    if (el) { el.textContent = msg || IDLE_CAPTION; el.className = 'mic-caption' + (cls ? ' ' + cls : ''); }
+    if (el) { el.textContent = msg; el.className = 'mic-caption' + (cls ? ' ' + cls : ''); }
     const o = orb();
-    if (o) { o.classList.remove('recording', 'speaking'); if (cls === 'live') o.classList.add('recording'); else if (cls === 'speaking') o.classList.add('speaking'); }
+    if (o) { o.classList.remove('recording', 'thinking', 'speaking'); if (cls) o.classList.add(cls === 'live' ? 'recording' : cls); }
     const ic = $('micIcon');
-    if (ic) ic.textContent = cls === 'live' ? '◉' : cls === 'speaking' ? '🔊' : '🎙';
+    if (ic) ic.textContent = cls === 'speaking' ? '🔊' : cls === 'live' ? '◉' : cls === 'thinking' ? '…' : '🎙';
+  }
+  function showMoss(retrieval) {
+    const el = $('voiceMoss');
+    if (!el || !retrieval) return;
+    const eng = retrieval.fell_back ? 'fallback' : retrieval.engine;
+    el.hidden = false;
+    el.innerHTML = `<span class="lk">⚡ Moss</span> · engine <b>${escapeHtml(String(eng))}</b>`
+      + ` · <b>${Number(retrieval.latency_ms).toFixed(2)} ms</b> · retrieved <b>${retrieval.result_count}</b>`;
+  }
+  function mapState(st) {
+    if (st === 'listening') setCaption('listening…', 'live');
+    else if (st === 'thinking') setCaption('thinking…', 'thinking');
+    else if (st === 'speaking') setCaption('Versa is speaking…', 'speaking');
+    else setCaption('connected — go ahead', 'live');
   }
 
-  function speak(text) {
-    if (!speakOn || !synth || !window.SpeechSynthesisUtterance) return;
+  async function connect() {
+    if (connecting || room) return;
+    if (!LK) { setCaption('voice needs Chrome + network', ''); return; }
+    connecting = true; setCaption('connecting…', 'thinking');
+    const learner = ($('learnerChip').value || 'alice-chen').trim();
     try {
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(cleanForSpeech(text));
-      u.lang = 'en-US'; u.rate = 1.0;
-      const en = (synth.getVoices() || []).find((v) => /^en(-|_|$)/i.test(v.lang));
-      if (en) u.voice = en;
-      setCaption('speaking…', 'speaking');
-      u.onend = () => { if (!recording) setCaption(IDLE_CAPTION, ''); };
-      u.onerror = () => { if (!recording) setCaption(IDLE_CAPTION, ''); };
-      synth.speak(u);
-    } catch (_) {}
+      const res = await fetch('/api/livekit/token', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ learner }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'token failed');
+      room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === LK.Track.Kind.Audio) {
+          const a = track.attach(); a.autoplay = true; $('audioContainer').appendChild(a);
+        }
+      });
+      room.on(LK.RoomEvent.ParticipantAttributesChanged, (_c, p) => {
+        const st = p.attributes && p.attributes['lk.agent.state']; if (st) mapState(st);
+      });
+      room.on(LK.RoomEvent.DataReceived, (payload, _p, _k, topic) => {
+        if (topic === 'versa.telemetry') { try { showMoss(JSON.parse(new TextDecoder().decode(payload)).retrieval); } catch (_) {} }
+      });
+      room.on(LK.RoomEvent.Disconnected, () => teardown());
+      await room.connect(data.url, data.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      setCaption('connected — go ahead', 'live');
+    } catch (e) {
+      setCaption('couldn’t connect: ' + e.message, '');
+      teardown();
+    } finally { connecting = false; }
   }
-  function stopSpeaking() { try { if (synth) synth.cancel(); } catch (_) {} if (!recording) setCaption(IDLE_CAPTION, ''); }
-
-  function startMic() {
-    if (!SR) { setCaption('mic needs Chrome', ''); setTimeout(() => setCaption(IDLE_CAPTION, ''), 2000); return; }
-    stopSpeaking();
-    rec = new SR();
-    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-IN';
-    recording = true; setCaption('listening…', 'live');
-    rec.onresult = (e) => {
-      let interim = '', finalText = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t; else interim += t;
-      }
-      if (interim) { $('draft').value = interim; setCaption('“' + interim + '”', 'live'); }
-      if (finalText) { stopMic(); $('draft').value = ''; submit(finalText.trim()); }
-    };
-    rec.onerror = (e) => { stopMic(); if (e.error && e.error !== 'no-speech' && e.error !== 'aborted') setCaption('mic: ' + e.error, ''); };
-    rec.onend = () => { stopMic(); };
-    try { rec.start(); } catch (_) {}
-  }
-  function stopMic() {
-    recording = false; setCaption(IDLE_CAPTION, '');
-    if (rec) { try { rec.stop(); } catch (_) {} }
+  function teardown() {
+    if (room) { try { room.disconnect(); } catch (_) {} }
+    room = null;
+    $('audioContainer').innerHTML = '';
+    $('voiceMoss').hidden = true;
+    setCaption('tap to talk', '');
   }
 
   const micBtn = orb();
-  // barge-in: tapping the orb while Versa is speaking stops it (§33)
-  if (micBtn) micBtn.onclick = () => {
-    if (micBtn.classList.contains('speaking')) { stopSpeaking(); return; }
-    recording ? stopMic() : startMic();
-  };
-  const toggle = $('speakToggle');
-  if (toggle) toggle.onclick = () => {
-    speakOn = !speakOn;
-    toggle.classList.toggle('on', speakOn);
-    toggle.textContent = speakOn ? '🔊 speak: on' : '🔊 speak: off';
-    if (!speakOn) stopSpeaking();
-  };
-  if (synth) { try { synth.getVoices(); } catch (_) {} }
-
-  window.Voice = { speak, stopSpeaking };
+  if (micBtn) micBtn.onclick = () => { room ? teardown() : connect(); };
+  window.Voice = { connect, teardown };
+  if (!LK) setCaption('voice unavailable (LiveKit did not load)', '');
 })();
 
 startBackground();

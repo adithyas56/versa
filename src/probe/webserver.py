@@ -45,6 +45,7 @@ from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
     JSONResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -410,8 +411,9 @@ async def _index(_request: Request) -> Response:
 
 
 async def _voice_page(_request: Request) -> Response:
-    # The real-time LiveKit voice tutor page.
-    return FileResponse(_STATIC_DIR / "voice.html")
+    # Voice now lives on the main page (the mic orb is a real-time LiveKit
+    # session). Keep /voice working by sending it there.
+    return RedirectResponse(url="/", status_code=307)
 
 
 def _livekit_config() -> tuple[str | None, str | None, str | None]:

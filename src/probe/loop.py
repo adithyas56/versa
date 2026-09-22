@@ -139,6 +139,34 @@ _TEACH_FAILURE_MESSAGE = (
 # re-derive the whole session.
 _HISTORY_TURNS = 3
 
+# Greetings / small-talk / filler that must NEVER trigger a "which of these
+# did you mean?" clarification — asking a student to disambiguate "hi" is the
+# opposite of conversational. These route straight to a normal FinalAnswer
+# reply (and skip the AssessAndBranch LLM call entirely). Deliberately an
+# exact-match set after light normalization, so real short questions
+# ("explain trees") still go through ambiguity detection as intended.
+_TRIVIAL_TURNS = frozenset(
+    {
+        "hi", "hii", "hey", "hey there", "hi there", "hiya", "hello", "hello there",
+        "yo", "sup", "wassup", "whats up", "what's up", "howdy",
+        "good morning", "good afternoon", "good evening", "good night", "gn",
+        "how are you", "how are you doing", "how r u", "hru", "how's it going",
+        "thanks", "thank you", "thankyou", "thx", "ty", "cheers",
+        "ok", "okay", "k", "kk", "cool", "nice", "great", "awesome", "got it",
+        "yes", "yep", "yeah", "yup", "no", "nope", "nah",
+        "bye", "goodbye", "see you", "see ya", "later",
+        "test", "testing", "hmm", "hm",
+    }
+)
+
+
+def _is_trivial_turn(text: str) -> bool:
+    """True for a greeting / acknowledgement / filler that should get a plain
+    friendly reply, not an ambiguity clarification. Conservative: only exact
+    matches after lowercasing and stripping surrounding punctuation."""
+    t = " ".join(text.strip().lower().strip("!?.,").split())
+    return t in _TRIVIAL_TURNS
+
 
 def _total_retry_count(tiers: ModelTierClients) -> int:
     """Sum of GeminiLLMClient.retry_count across every distinct client
@@ -1016,22 +1044,29 @@ class SessionLoop:
             )
             return message
 
-        thinking_style_hint = await self._build_thinking_style_hint(learner_id)
-        reference_binding_hint = await self._build_reference_binding_hint(learner_id, turn_text)
-        assessment = await self._call_node_or_warn(
-            self.assess_and_branch,
-            session_id,
-            turn_index,
-            "AssessAndBranch",
-            DisambiguationAssessment(needs_branches=False, branch_statements=[]),
-            warnings,
-            message=turn_text,
-            recent_history=recent_history,
-            typed_past_note=typed_past_note,
-            thinking_style_hint=thinking_style_hint,
-            reference_binding_hint=reference_binding_hint,
-        )
-        node_call_counts["AssessAndBranch"] = self.assess_and_branch.last_call_count
+        # Greetings / small-talk never get a clarification prompt — answer
+        # them naturally and skip the AssessAndBranch call entirely.
+        if _is_trivial_turn(turn_text):
+            assessment = DisambiguationAssessment(needs_branches=False, branch_statements=[])
+            reference_binding_hint = None
+            node_call_counts["AssessAndBranch"] = 0
+        else:
+            thinking_style_hint = await self._build_thinking_style_hint(learner_id)
+            reference_binding_hint = await self._build_reference_binding_hint(learner_id, turn_text)
+            assessment = await self._call_node_or_warn(
+                self.assess_and_branch,
+                session_id,
+                turn_index,
+                "AssessAndBranch",
+                DisambiguationAssessment(needs_branches=False, branch_statements=[]),
+                warnings,
+                message=turn_text,
+                recent_history=recent_history,
+                typed_past_note=typed_past_note,
+                thinking_style_hint=thinking_style_hint,
+                reference_binding_hint=reference_binding_hint,
+            )
+            node_call_counts["AssessAndBranch"] = self.assess_and_branch.last_call_count
 
         if not assessment.needs_branches:
             # Persisted unconditionally -- a turn judged unambiguous is a

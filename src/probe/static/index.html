@@ -111,6 +111,9 @@ input,button{font-family:inherit}
 .mic-caption{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8478;letter-spacing:.6px;min-height:15px;transition:color .2s}
 .mic-caption.live{color:#c2410c;font-style:italic}
 .mic-caption.speaking{color:#5b6d48}
+.voice-moss{font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8478;letter-spacing:.3px;text-align:center;max-width:520px}
+.voice-moss b{color:#c2410c;font-weight:400}
+.voice-moss .lk{color:#5b6d48}
 .promptbar .send-btn{flex-shrink:0}
 .speak-toggle{background:transparent;border:1px solid #e3ded3;border-radius:20px;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8478;cursor:pointer;letter-spacing:0.5px}
 .speak-toggle.on{color:#5b6d48;border-color:#a9c089;background:rgba(123,160,91,0.08)}
@@ -204,6 +207,7 @@ input,button{font-family:inherit}
 .ev-note{background:rgba(194,65,12,0.06);border:1px solid rgba(194,65,12,0.25);border-radius:10px;padding:10px 12px;font-size:11.5px;color:#9a2f08;line-height:1.5;margin-bottom:14px}
 @media (max-width:900px){.inspector{position:fixed;right:0;top:0;z-index:40;box-shadow:-8px 0 40px rgba(0,0,0,0.12)}.empty-hero .big{font-size:60px;letter-spacing:-2px}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
 </head>
 <body>
 <div class="probe-bloom"></div>
@@ -283,11 +287,12 @@ input,button{font-family:inherit}
     <div class="promptwrap">
       <div class="col">
         <div class="voice-hub">
-          <button class="mic-orb" id="micBtn" title="tap to speak" type="button">
+          <button class="mic-orb" id="micBtn" title="tap to talk with Versa" type="button">
             <span class="mic-orb-ring"></span>
             <span class="mic-orb-icon" id="micIcon">🎙</span>
           </button>
-          <div class="mic-caption" id="micState">tap to speak</div>
+          <div class="mic-caption" id="micState">tap to talk</div>
+          <div class="voice-moss" id="voiceMoss" hidden></div>
         </div>
         <div class="probe-panel promptbar">
           <input type="text" id="draft" placeholder="…or type your question" autocomplete="off">
@@ -298,9 +303,8 @@ input,button{font-family:inherit}
         <div class="prompt-meta">
           <div style="display:flex;align-items:center;gap:12px">
             <span>learner: <span id="learnerEcho">alice-chen</span></span>
-            <button id="speakToggle" class="speak-toggle" title="read answers aloud" type="button">🔊 speak: off</button>
           </div>
-          <div id="promptHint">enter ↵ to send</div>
+          <div id="promptHint">tap the mic to talk · or enter ↵ to send</div>
         </div>
       </div>
     </div>
@@ -316,6 +320,7 @@ input,button{font-family:inherit}
   </div>
 </div>
 
+<div id="audioContainer" style="display:none"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>
